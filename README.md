@@ -1,4 +1,4 @@
-# 🎸 Songbird
+# Songbird
 
 Watch someone play guitar; transcribe it to an **editable tab sheet**.
 
