@@ -40,8 +40,8 @@ record → upload webm+wav         3 right-hand gesture pass           edit tool
 ## Stack
 
 Keras 3 (**torch** backend — no TensorFlow) · MediaPipe Hand Landmarker ·
-OpenCV · librosa · FastAPI · Next.js/React · Docker · Render + Vercel ·
-Supabase (auth + tab JSON, RLS).
+OpenCV · librosa · FastAPI · Next.js/React · Docker · Render + Cloudflare
+Pages · Supabase (auth + tab JSON, RLS).
 
 ## Run locally
 
@@ -83,8 +83,10 @@ python -m backend.train_detector --smoke    # training loop
 
 ## Training the markerless detector (one-time, needs a guitar)
 
-The full loop runs immediately using the ArUco dev rig; markerless needs a
-small training pass on your own footage or photos:
+The full loop runs immediately without training: a classical-CV fallback
+(Hough lines + inlay dots, numbering anchored on the 12th-fret double dot —
+keep it in frame) handles bare guitars, and the ArUco dev rig also works.
+For best accuracy across guitars/lighting, train the keypoint detector:
 
 1. Print markers: `python -m backend.app.vision.markers_dev --sheet` → tape the
    4 squares just outside the fret area.
@@ -97,9 +99,14 @@ small training pass on your own footage or photos:
 ## Deploy
 
 - **Backend → Render**: push, point Render at `render.yaml`, set
-  `FRONTEND_ORIGIN` to your Vercel URL.
-- **Frontend → Vercel**: root `frontend/`, set `NEXT_PUBLIC_API_URL` (+ the two
-  `NEXT_PUBLIC_SUPABASE_*` vars for accounts).
+  `FRONTEND_ORIGIN` to your Cloudflare Pages URL.
+- **Frontend → Cloudflare Pages** (static export, no server runtime):
+  one-time `npx wrangler login`, then from `frontend/`:
+  `npm run deploy` (builds + `wrangler pages deploy out`). NEXT_PUBLIC_* values
+  are baked at build time — put the production `NEXT_PUBLIC_API_URL` and
+  `NEXT_PUBLIC_SUPABASE_*` in `frontend/.env.production` before deploying.
+  (Alternative: connect the repo in the Cloudflare dashboard — build command
+  `npx next build`, output dir `out`.)
 - **Supabase**: create a free project, run `supabase/migrations/001_tabs.sql`,
   add `SUPABASE_URL`/`SUPABASE_ANON_KEY` repo secrets so the keep-alive action
   prevents the 7-day free-tier pause.

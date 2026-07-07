@@ -1,5 +1,5 @@
 # Render Blueprint (spec §4): backend as a Docker web service.
-# Frontend deploys to Vercel separately; set FRONTEND_ORIGIN to its URL.
+# Frontend deploys to Cloudflare Pages separately; set FRONTEND_ORIGIN to its URL.
 services:
   - type: web
     name: songbird-backend
@@ -9,6 +9,6 @@ services:
     healthCheckPath: /health
     envVars:
       - key: FRONTEND_ORIGIN
-        value: https://songbird.vercel.app   # <- replace with your Vercel URL
+        value: https://songbird.pages.dev   # <- replace with your Pages URL
       - key: KERAS_BACKEND
         value: torch
