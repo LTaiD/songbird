@@ -28,8 +28,8 @@ _preview = {}
 def _preview_deps():
     if not _preview:
         from .vision.hands import HandTracker
-        from .transcribe.pipeline import _NeckSource
-        _preview.update(hands=HandTracker(), neck=_NeckSource(), t0=time.time())
+        from .vision.necksource import NeckSource
+        _preview.update(hands=HandTracker(), neck=NeckSource(), t0=time.time())
     return _preview
 
 

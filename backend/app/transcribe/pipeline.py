@@ -4,50 +4,24 @@
     2 video sampled AT onsets      5 quantize to the (metronome) beat grid
     3 fretting reads (WHERE)       6 assemble -> Songbird tab JSON
 
-Neck anchor source: trained markerless detector when weights exist, else the
-Phase-0 ArUco markers — so the full loop runs before the detector is trained.
+Neck anchor source (vision/necksource.py): trained detector > ArUco rig >
+classical lines+dots — so the full loop runs untrained on a bare guitar.
 Raw audio/video are transient inputs; nothing is persisted here (spec §9).
 """
-import os
-
 import cv2
 import numpy as np
 
 from ..audio import onsets, pitch, tempo
 from ..vision.hands import HandTracker
 from ..vision.contact import ContactHead
-from ..vision.tracking import NeckTracker
+from ..vision.necksource import NeckSource
 from ..vision import markers_dev as md
 from .fuse import fuse
 from .assemble import assemble
 
-DETECTOR_WEIGHTS = "backend/app/models/fretboard_kps.weights.h5"
 WINDOW = 0.12          # seconds either side of an onset to sample (spec §D.2)
 FRAMES_PER_ONSET = 3   # temporal context beats a single mid-strike frame
-MARKER_CONF = 0.8      # homography certainty for the ArUco dev path
-
-
-class _NeckSource:
-    """Markerless detector if trained, else ArUco. Returns per-frame reader."""
-
-    def __init__(self):
-        self.detector = None
-        if os.path.exists(DETECTOR_WEIGHTS):
-            from ..vision.detector import Detector
-            self.detector = Detector(weights=DETECTOR_WEIGHTS)
-            self.tracker = NeckTracker()
-
-    def reader(self, frame):
-        """-> callable (x, y) -> (string, fret) | None, or None if no neck."""
-        if self.detector:
-            corr = self.detector.detect(frame)
-            if corr and self.tracker.set_detection(corr):
-                return self.tracker.image_to_string_fret
-            return None
-        H = md.detect_homography(frame)
-        if H is None:
-            return None
-        return lambda xy: md.board_to_string_fret(*md.image_to_board(H, xy))
+MARKER_CONF = 0.8      # homography certainty for non-learned anchor paths
 
 
 def _vision_reads(cap, fps, t, neck, hands, contact, ts_state):
@@ -83,7 +57,7 @@ def transcribe(video_path, audio_path, bpm=None, progress=lambda p, msg: None):
     times = onsets.detect(y)
     grid_bpm, _ = tempo.beat_grid(known_bpm=bpm, y=y, sr=onsets.SR)
 
-    hands, contact, neck = HandTracker(), ContactHead(), _NeckSource()
+    hands, contact, neck = HandTracker(), ContactHead(), NeckSource()
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     ts_state = [0]
