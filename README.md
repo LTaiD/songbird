@@ -40,8 +40,8 @@ record → upload webm+wav         3 right-hand gesture pass           edit tool
 ## Stack
 
 Keras 3 (**torch** backend — no TensorFlow) · MediaPipe Hand Landmarker ·
-OpenCV · librosa · FastAPI · Next.js/React · Docker · Render + Cloudflare
-Pages · Supabase (auth + tab JSON, RLS).
+OpenCV · librosa · FastAPI · Next.js/React · Docker · Hugging Face Spaces +
+Cloudflare Pages · Supabase (auth + tab JSON, RLS).
 
 ## Run locally
 
@@ -98,8 +98,11 @@ For best accuracy across guitars/lighting, train the keypoint detector:
 
 ## Deploy
 
-- **Backend → Render**: push, point Render at `render.yaml`, set
-  `FRONTEND_ORIGIN` to your Cloudflare Pages URL.
+- **Backend → Hugging Face Spaces** (free, 16 GB — the ML stack needs ~2 GB, so
+  Render's free/starter tiers OOM): create a Docker Space, push the `backend/`
+  tree to it (`backend/README.md` carries the Space config), set `FRONTEND_ORIGIN`
+  in Space → Settings → Variables to your Pages URL. `render.yaml` is kept as a
+  paid-tier (Standard, 2 GB) alternative.
 - **Frontend → Cloudflare Pages** (static export, no server runtime):
   one-time `npx wrangler login`, then from `frontend/`:
   `npm run deploy` (builds + `wrangler pages deploy out`). NEXT_PUBLIC_* values
