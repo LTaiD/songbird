@@ -11,8 +11,12 @@ Setup note: place markers just OUTSIDE the fret playing area so they don't
 occlude the nut/inlays. Pass --inpaint to blank the marker quads in saved frames
 so the detector can't cheat off them.
 
-Run: python -m backend.app.vision.label_from_markers <clip.mp4> <out_dir> [--inpaint] [--every N]
-Output: out_dir/<clip>_<frame>.png + .json ({nut:[lo,hi], inlays:{n:[x,y]}, dot12:[x,y]}).
+Input may be a video clip OR a folder of photos (multi-angle stills work great —
+each photo just needs the 4 markers visible).
+
+Run: python -m backend.app.vision.label_from_markers <clip.mp4|photo_dir> <out_dir> [--inpaint] [--every N]
+Output: out_dir/<name>.png + .json ({nut:[lo,hi], inlays:{n:[x,y]}, dot12:[x,y]}).
+For bare (marker-free) photos use label_click.py instead.
 """
 import os
 import sys
@@ -55,26 +59,46 @@ def _inpaint_markers(frame):
     return cv2.inpaint(frame, cv2.dilate(mask, np.ones((9, 9), np.uint8)), 3, cv2.INPAINT_TELEA)
 
 
-def main(clip, out_dir, inpaint=False, every=5):
+def _save(frame, base, inpaint):
+    kp = label_frame(frame)
+    if not kp:
+        return False
+    cv2.imwrite(base + ".png", _inpaint_markers(frame) if inpaint else frame)
+    json.dump(kp, open(base + ".json", "w"))
+    return True
+
+
+def main(src, out_dir, inpaint=False, every=5):
     os.makedirs(out_dir, exist_ok=True)
-    cap = cv2.VideoCapture(clip)
-    stem = os.path.splitext(os.path.basename(clip))[0]
-    i = saved = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        if i % every == 0:
-            kp = label_frame(frame)
-            if kp:
-                img = _inpaint_markers(frame) if inpaint else frame
-                base = os.path.join(out_dir, f"{stem}_{i:06d}")
-                cv2.imwrite(base + ".png", img)
-                json.dump(kp, open(base + ".json", "w"))
+    saved = skipped = 0
+    if os.path.isdir(src):  # folder of photos
+        exts = (".png", ".jpg", ".jpeg", ".heic", ".bmp")
+        for f in sorted(os.listdir(src)):
+            if not f.lower().endswith(exts):
+                continue
+            img = cv2.imread(os.path.join(src, f))
+            if img is None:
+                skipped += 1
+                continue
+            base = os.path.join(out_dir, os.path.splitext(f)[0])
+            if _save(img, base, inpaint):
                 saved += 1
-        i += 1
-    cap.release()
-    print(f"labeled {saved} frames -> {out_dir}")
+            else:
+                skipped += 1
+    else:  # video clip
+        cap = cv2.VideoCapture(src)
+        stem = os.path.splitext(os.path.basename(src))[0]
+        i = 0
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if i % every == 0:
+                saved += _save(frame, os.path.join(out_dir, f"{stem}_{i:06d}"), inpaint)
+            i += 1
+        cap.release()
+    print(f"labeled {saved} frames -> {out_dir}"
+          + (f" ({skipped} unreadable/no-markers skipped)" if skipped else ""))
 
 
 if __name__ == "__main__":
