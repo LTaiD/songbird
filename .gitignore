@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Songbird Phase 0 artifacts
+backend/app/vision/hand_landmarker.task
+markers.png
+
+# Phase 1 model weights + training data
+backend/app/models/
+data/
