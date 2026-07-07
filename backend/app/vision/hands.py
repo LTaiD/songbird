@@ -38,15 +38,17 @@ class HandTracker:
         )
         self._lm = mp_vision.HandLandmarker.create_from_options(opts)
 
-    def fingertips(self, frame_rgb, timestamp_ms, w, h):
-        """Yield (x_px, y_px) for every fingertip of every detected hand.
-
-        ponytail: Phase 0 overlays all hands, not just the fretting one — the
-        board homography already filters tips to on-fretboard ones. Handedness
-        gating comes with the real pipeline (Phase 2).
-        """
+    def hands(self, frame_rgb, timestamp_ms, w, h):
+        """Detected hands as (landmarks, [(tip_x_px, tip_y_px), ...]) pairs —
+        landmarks feed the contact/press head, tips feed the neck homography.
+        The board filter (not handedness) picks fretting reads: only tips that
+        land on the fretboard map to a (string, fret)."""
         img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
         res = self._lm.detect_for_video(img, timestamp_ms)
-        for hand in res.hand_landmarks:
-            for i in FINGERTIPS:
-                yield hand[i].x * w, hand[i].y * h
+        return [(hand, [(hand[i].x * w, hand[i].y * h) for i in FINGERTIPS])
+                for hand in res.hand_landmarks]
+
+    def fingertips(self, frame_rgb, timestamp_ms, w, h):
+        """Yield (x_px, y_px) for every fingertip of every detected hand."""
+        for _, tips in self.hands(frame_rgb, timestamp_ms, w, h):
+            yield from tips
