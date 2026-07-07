@@ -1,8 +1,17 @@
-# Phase 0. opencv-contrib-python (not opencv-python) — it ships cv2.aruco.
+# opencv-contrib-python (not opencv-python) — it ships cv2.aruco.
+--extra-index-url https://download.pytorch.org/whl/cpu
 opencv-contrib-python
 mediapipe
 numpy<2  # mediapipe/matplotlib/numba in common envs aren't numpy-2 ready yet
 
-# Phase 1. Keras 3 on the torch backend (KERAS_BACKEND=torch); torch = MPS on mac.
+# Keras 3 on the torch backend (KERAS_BACKEND=torch); cpu wheels for Docker.
 keras
 torch
+
+# audio (WHEN) + API
+librosa
+soundfile
+fastapi
+uvicorn[standard]
+python-multipart
+websockets
