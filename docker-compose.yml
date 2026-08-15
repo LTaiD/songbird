@@ -1,9 +1,0 @@
-# Local dev: backend in Docker, frontend via `npm run dev` (hot reload beats
-# containerizing Next locally).
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      FRONTEND_ORIGIN: http://localhost:3000

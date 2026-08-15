@@ -1,0 +1,10 @@
+torch
+muq
+librosa
+faiss-cpu
+soundfile
+yt-dlp
+python-vlc
+PySide6
+certifi
+numpy
