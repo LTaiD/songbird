@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-Songbird Archive Streamer shared backend — the "engine".
-
-All the non-visual plumbing lives here so UI prototypes can stay thin: yt-dlp
-resolving, libVLC playback, the audio-waveform decode, position polling, the
-keyframe-seek settling, the A-B section loop, and speed/volume. A UI drives it
-through plain methods and reacts to its signals; it owns no widgets except the
-native video surface (attached via a window id).
-
-This mirrors the logic in link-stream.py (the frozen reference app) — if you
-change playback behavior, change it here and the reference both, or promote a
-chosen design back into a single file later.
-"""
 
 import shutil
 import subprocess
@@ -23,8 +10,7 @@ import vlc
 import yt_dlp
 from PySide6 import QtCore
 
-# When yt-dlp runs as a library the remote-component allow-list isn't pre-filled,
-# so register YouTube's JS challenge solver components up front.
+
 try:
     from yt_dlp.globals import supported_remote_components
     for _c in ("ejs:github", "ejs:npm"):
@@ -33,18 +19,17 @@ try:
 except Exception:
     pass
 
-WAVE_BINS = 1600           # amplitude buckets computed for the waveform
-POLL_MS = 150              # playback poll interval (VLC state / seek / loop)
-RENDER_MS = 33             # playhead render interval (~30fps smooth interpolation)
-CATCHUP_MS = 250           # only ease the playhead FORWARD if it falls this far behind
-SEEK_STEP_MS = 5000        # arrow-key seek step
-SEEK_REPEAT_MS = 150       # how often a held arrow key seeks again
-SEEK_LIVE_MARGIN_MS = 250  # resume live playhead once get_time passes the seek target
-SEEK_SETTLE_MAX = 80       # polls (~12s) to hold the playhead at the target
+WAVE_BINS = 1600
+POLL_MS = 150
+RENDER_MS = 33
+CATCHUP_MS = 250
+SEEK_STEP_MS = 5000
+SEEK_REPEAT_MS = 150
+SEEK_LIVE_MARGIN_MS = 250
+SEEK_SETTLE_MAX = 80
 
 
 def fmt_time(ms):
-    """milliseconds formatted as m:ss."""
     if ms is None or ms < 0:
         ms = 0
     s = int(ms // 1000)
@@ -52,27 +37,27 @@ def fmt_time(ms):
 
 
 class Engine(QtCore.QObject):
-    """Headless player engine. Drive it with the public methods; react to signals."""
 
-    # --- public signals (UI listens to these) -------------------------
-    loaded = QtCore.Signal(str)                  # title, after media starts
-    status = QtCore.Signal(str)                  # status / error / progress text
-    waveform = QtCore.Signal(object)             # numpy peaks (or None to clear)
-    section_changed = QtCore.Signal(object, object)  # a, b (floats or None)
-    tick = QtCore.Signal(float, int, int)        # disp_frac, disp_ms, length_ms
-    playing_changed = QtCore.Signal(bool)        # play/pause state for the UI
+    loaded = QtCore.Signal(str)
+    status = QtCore.Signal(str)
+    waveform = QtCore.Signal(object)
+    section_changed = QtCore.Signal(object, object)
+    tick = QtCore.Signal(float, int, int)
+    playing_changed = QtCore.Signal(bool)
 
-    # --- internal worker-thread -> main-thread marshalling ------------
     _resolved = QtCore.Signal(str, str, str, float, str)
     _waveformReady = QtCore.Signal(object, int)
     _waveformFailed = QtCore.Signal(str, int)
 
     def __init__(self):
         super().__init__()
-        self.vlc = vlc.Instance()
+
+        self.vlc = vlc.Instance("--no-videotoolbox", "--quiet")
         self.player = self.vlc.media_player_new()
         self.media = None
         self._winid = None
+        self._audio_src = ""
+        self._page_url = ""
         self._pending_seek = None
         self._wave_gen = 0
         self._duration_ms = 0
@@ -86,10 +71,9 @@ class Engine(QtCore.QObject):
         self._scrubbing = False
         self._speed = 1.0
         self._volume = 100
+        self._loop = False
+        self._load_retry = 0
 
-        # Smooth-playhead interpolation: the 150ms VLC poll anchors a local clock
-        # and a faster render timer glides the playhead between polls, so it
-        # doesn't step/teleport with VLC's coarse get_time().
         self._disp_ms = 0.0
         self._length_ms = 0
         self._anchor_ms = 0.0
@@ -109,9 +93,7 @@ class Engine(QtCore.QObject):
         self.render_timer.timeout.connect(self._render)
         self.render_timer.start(RENDER_MS)
 
-    # --- video surface -------------------------------------------------
     def attach_video(self, winid):
-        """Give the engine the native window id of the UI's video widget."""
         self._winid = int(winid)
         self._embed()
 
@@ -125,16 +107,18 @@ class Engine(QtCore.QObject):
             self.player.set_nsobject(h)
         else:
             self.player.set_xwindow(h)
-        # Let the UI (Qt) receive clicks/keys instead of libVLC eating them.
+
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
 
-    # --- settings ------------------------------------------------------
     def is_playing(self):
         return self.player.is_playing()
 
+    def match_source(self):
+        return self._page_url
+
     def set_speed(self, rate):
-        # Re-anchor first so the new rate only applies to time from here on.
+
         self._set_anchor(self._disp_ms, self._interp_active)
         self._speed = float(rate)
         self.player.set_rate(self._speed)
@@ -143,34 +127,34 @@ class Engine(QtCore.QObject):
         self._volume = int(vol)
         self.player.audio_set_volume(self._volume)
 
+    def set_loop(self, on):
+        self._loop = bool(on)
+
     def set_scrubbing(self, scrubbing):
-        # The UI tells us when the user is dragging the playhead, so we don't
-        # fight it (skip the live playhead update and section enforcement).
+
         self._scrubbing = bool(scrubbing)
 
-    # --- sections ------------------------------------------------------
     def set_section(self, a, b):
-        # UI-initiated; store without echoing back (no section_changed emit).
+
         self._sec_a, self._sec_b = a, b
         self._sec_armed = self._sec_awaiting = False
 
     def clear_section(self):
-        # Engine-initiated (e.g. new video); notify the UI to clear its drawing.
+
         self._sec_a = self._sec_b = None
         self._sec_armed = self._sec_awaiting = False
         self.section_changed.emit(None, None)
 
-    # --- transport -----------------------------------------------------
     def play_pause(self):
         if self._ended():
             self._restart(0.0)
         elif self.player.is_playing():
             self.player.pause()
-            self._set_anchor(self._disp_ms, False)   # freeze playhead now
+            self._set_anchor(self._disp_ms, False)
             self.playing_changed.emit(False)
         else:
             self.player.play()
-            self._set_anchor(self._disp_ms, True)     # glide from here now
+            self._set_anchor(self._disp_ms, True)
             self.playing_changed.emit(True)
 
     def _ended(self):
@@ -186,21 +170,29 @@ class Engine(QtCore.QObject):
         self._pending_seek = fraction
         self.playing_changed.emit(True)
 
-    # --- loading -------------------------------------------------------
     def load(self, url):
         url = (url or "").strip()
         if not url:
             return
+        self._page_url = url
+        self._load_retry = 0
         self.status.emit("resolving…")
         threading.Thread(target=self._resolve, args=(url,), daemon=True).start()
 
+    def _retry_load(self):
+
+        self._load_retry += 1
+        self.status.emit("stream expired — re-resolving…")
+        threading.Thread(target=self._resolve, args=(self._page_url,), daemon=True).start()
+
     def _resolve(self, url):
-        opts = {"format": "best[ext=mp4]/best", "quiet": True,
+
+        opts = {"format": "best[ext=mp4]/best", "quiet": True, "cachedir": False,
                 "noplaylist": True, "remote_components": ["ejs:github"]}
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-            # Smallest audio-only stream = fastest waveform decode.
+
             auds = [f for f in info.get("formats", [])
                     if f.get("acodec") not in (None, "none")
                     and f.get("vcodec") in (None, "none") and f.get("url")]
@@ -217,14 +209,15 @@ class Engine(QtCore.QObject):
     def _set_media(self, stream, title, audio_url="", duration=0.0, video_id=""):
         self.media = self.vlc.media_new(stream)
         self._pending_seek = None
+        self._audio_src = audio_url or stream
         self._title = title
         self._duration_ms = int(duration * 1000)
         self._sec_armed = self._sec_awaiting = False
         self._seek_target_ms = None
         self._disp_ms = 0.0
         self._length_ms = 0
-        self._set_anchor(0, False)           # playhead starts at zero
-        self.clear_section()                 # new video -> clean slate
+        self._set_anchor(0, False)
+        self.clear_section()
         self.player.set_media(self.media)
         self._embed()
         self.player.play()
@@ -284,17 +277,20 @@ class Engine(QtCore.QObject):
 
     @QtCore.Slot(str, int)
     def _on_waveform_failed(self, reason, gen):
-        if gen == self._wave_gen:
-            self.status.emit(reason)
+        if gen != self._wave_gen:
+            return
+        low = reason.lower()
+        if ("403" in low or "forbidden" in low) and self._load_retry < 1 and self._page_url:
+            self._retry_load()
+            return
+        self.status.emit(reason)
 
-    # --- seeking -------------------------------------------------------
     def _length(self):
         length = self.player.get_length()
         return length if length > 0 else self._duration_ms
 
     def _begin_seek(self, target_ms, length):
-        # Paint the playhead at the target now and suppress the backward
-        # get_time() dip until playback rolls past it (handled in _poll).
+
         if length <= 0:
             return
         target = max(0, min(length - 1, int(target_ms)))
@@ -302,8 +298,8 @@ class Engine(QtCore.QObject):
         self._seek_settle_polls = 0
         self._length_ms = length
         self._disp_ms = target
-        self._set_anchor(target, False)              # hold at target until settle
-        self.tick.emit(target / length, target, int(length))   # instant feedback
+        self._set_anchor(target, False)
+        self.tick.emit(target / length, target, int(length))
 
     def seek_fraction(self, frac):
         if self._ended():
@@ -324,15 +320,12 @@ class Engine(QtCore.QObject):
             self.player.set_time(int(new))
         self._begin_seek(new, length)
 
-    # --- smooth playhead -----------------------------------------------
     def _set_anchor(self, ms, advancing):
-        """Anchor the local playback clock; `advancing` glides, else freezes."""
         self._anchor_ms = float(ms)
         self._anchor_clock.restart()
         self._interp_active = bool(advancing)
 
     def _render(self):
-        """~30fps: interpolate the playhead from the anchor and emit a tick."""
         length = self._length_ms
         if length <= 0:
             return
@@ -344,10 +337,14 @@ class Engine(QtCore.QObject):
         self._disp_ms = ms
         self.tick.emit(ms / length, int(ms), int(length))
 
-    # --- main loop -----------------------------------------------------
     def _poll(self):
         state = self.player.get_state()
         length = self._length()
+
+        if (state == vlc.State.Error and self.media is not None
+                and self._page_url and self._load_retry < 1):
+            self._retry_load()
+            return
 
         if self._pending_seek is not None and state == vlc.State.Playing and length > 0:
             self.player.set_position(self._pending_seek)
@@ -365,23 +362,20 @@ class Engine(QtCore.QObject):
                     self._seek_target_ms = None
                 else:
                     disp = self._seek_target_ms
-            # Re-anchor the smooth clock to VLC. The playhead must never step
-            # backward during playback (real backward jumps — seeks, loop wraps —
-            # come through _begin_seek/the seek-hold below), so while playing we
-            # only glide forward, easing forward if we've fallen behind.
+
             held = self._seek_target_ms is not None
             if held:
-                self._set_anchor(self._seek_target_ms, False)   # hold at seek target
+                self._set_anchor(self._seek_target_ms, False)
             elif self._scrubbing:
-                self._set_anchor(disp, False)                   # follow the drag
+                self._set_anchor(disp, False)
             elif state == vlc.State.Buffering:
-                self._set_anchor(self._disp_ms, False)          # stale time; don't move
+                self._set_anchor(self._disp_ms, False)
             elif state == vlc.State.Playing:
                 drift = disp - self._disp_ms
                 base = disp if drift > CATCHUP_MS else self._disp_ms
                 self._set_anchor(base, True)
             else:
-                self._set_anchor(disp, False)                   # paused / stopped: hold
+                self._set_anchor(disp, False)
 
             a, b = self._sec_a, self._sec_b
             has_sec = a is not None and b is not None and b > a
@@ -395,18 +389,21 @@ class Engine(QtCore.QObject):
                     self._begin_seek(a * length, length)
                     self._sec_awaiting = True
                     self._sec_armed = False
-                # else: awaiting -> let playback roll into the section
+
             elif (not has_sec or self._scrubbing
                     or state in (vlc.State.Paused, vlc.State.Stopped,
                                  vlc.State.Ended)):
                 self._sec_awaiting = False
 
         if state == vlc.State.Ended:
-            self.playing_changed.emit(False)
-            if length > 0:
-                self._length_ms = length
-                self._set_anchor(length, False)       # pin at the end
-                self.tick.emit(1.0, length, length)
+            if self._loop:
+                self._restart(0.0)
+            else:
+                self.playing_changed.emit(False)
+                if length > 0:
+                    self._length_ms = length
+                    self._set_anchor(length, False)
+                    self.tick.emit(1.0, length, length)
 
     def close(self):
         try:

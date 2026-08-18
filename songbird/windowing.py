@@ -1,7 +1,7 @@
 import numpy as np
 
 from .audio import SR
-from .embed import embed_window
+from .embed import embed_windows
 
 
 def windows(wav, win_s=10, hop_s=5):
@@ -18,8 +18,7 @@ def windows(wav, win_s=10, hop_s=5):
 
 
 def embed_all(wav, win_s=10, hop_s=5):
-    vecs = [embed_window(w) for w in windows(wav, win_s, hop_s)]
-    return np.stack(vecs).astype(np.float32)
+    return embed_windows(list(windows(wav, win_s, hop_s))).astype(np.float32)
 
 
 def _demo():

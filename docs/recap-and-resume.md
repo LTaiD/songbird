@@ -88,6 +88,14 @@ Use one variation per application. Each variation uses the STAR method: Situatio
 Task, Action, Result. The text is plain, with strong verbs, standard terms, and
 numbers. Keep it as plain text for applicant tracking systems.
 
+### Final selected entry (user-approved)
+
+**Songbird: Live Music Recognition System** | Python, PyTorch, MuQ, FAISS, librosa
+
+- Developed a two-stage retrieve-and-rerank pipeline on frozen embeddings from MuQ, a 300M-parameter self-supervised music transformer, to recognize songs across live performances and covers.
+- Built a FAISS vector-similarity index over a 1,100-song catalog for millisecond nearest-neighbor audio retrieval, auto-ingested from a public music API.
+- Designed a chord-progression reranking stage using sequence alignment on harmonic features to confirm matches by musical structure, not sound alone.
+
 ### Variation A — Machine Learning focus
 
 **Songbird — Cross-Performance Music Recognition System | Independent Project**

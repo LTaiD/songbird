@@ -32,9 +32,6 @@ def music_mask(wav, frame_s=1.0, rms_floor_db=-50.0, score_thr=0.12):
     rms, score = _frame_scores(wav, frame_s)
     rms_db = librosa.amplitude_to_db(rms + 1e-8, ref=np.max(rms) + 1e-8)
     mask = (rms_db > rms_floor_db) & (score > score_thr)
-    # ponytail: distorted/loud bands score low on chroma clarity, so trimming uses
-    # the music SPAN (first..last sustained run), not per-frame gating — robust to
-    # a fuzzy mix while still cutting spoken intros/outros. Knobs exposed if needed.
     return _smooth(mask.astype(bool)), frame_s
 
 

@@ -4,7 +4,7 @@ from collections import defaultdict
 import numpy as np
 
 from . import index as index_mod
-from .audio import load as load_audio
+from .audio import SR, load as load_audio
 from .windowing import embed_all
 
 
@@ -58,11 +58,13 @@ def _apple_url(rows, pred):
 
 
 def match(audio_path, data_dir="data/catalog", k=3, tau=0.1, win_s=10, hop_s=5,
-          rerank=True, recall_k=12):
+          rerank=True, recall_k=12, max_seconds=None):
     from .activity import trim_to_music
     from .rerank import chroma_rerank
     index, rows = index_mod.load(data_dir)
     wav = trim_to_music(load_audio(audio_path))
+    if max_seconds is not None and len(wav) > int(max_seconds * SR):
+        wav = wav[:int(max_seconds * SR)].astype(np.float32)
     cands = match_topk(embed_all(wav, win_s, hop_s), index, rows, k, tau, recall_k)
     if not cands:
         return None
