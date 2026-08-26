@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --paper: oklch(1 0 0);
+  --paper-2: oklch(0.972 0 0);
+  --ink: oklch(0.145 0 0);
+  --muted: oklch(0.53 0 0);
+  --line: oklch(0 0 0 / 0.12);
+  --ring: oklch(0 0 0 / 0.42);
+  --shadow-panel: 0 1px 2px oklch(0 0 0 / 0.05), 0 14px 34px -14px oklch(0 0 0 / 0.16);
+  --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.06), 0 28px 64px -22px oklch(0 0 0 / 0.24);
+}
+
+@theme inline {
+  --color-bg: var(--paper);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-surface: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --shadow-panel: var(--shadow-panel);
+  --shadow-lift: var(--shadow-lift);
+  --font-display: "Gasoek One", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui,
+      "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+  }
+  html {
+    scrollbar-width: none;
+  }
+  html::-webkit-scrollbar {
+    display: none;
+  }
+  ::selection {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+    border-radius: 8px;
+  }
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    box-shadow: none;
+  }
+}

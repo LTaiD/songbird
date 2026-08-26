@@ -20,8 +20,7 @@ audio or video file, or YouTube URL
   → Apple Music and Spotify search links
 ```
 
-This method follows the tipofmyear paper (Eser, ICML 2026 workshop). The paper
-uses frozen pretrained embeddings, kNN retrieval, and performance-level
+Frozen pretrained embeddings, kNN retrieval, and performance-level
 aggregation.
 
 ## Setup
@@ -31,9 +30,16 @@ python3.13 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Install ffmpeg first. The streamer needs ffmpeg and the VLC application
-(libVLC). Songbird downloads MuQ (`OpenMuQ/MuQ-large-msd-iter`, CC-BY-NC 4.0) on
-first use. MuQ runs on the CPU. The CPU path is slow.
+Install ffmpeg first. Songbird downloads MuQ (`OpenMuQ/MuQ-large-msd-iter`,
+CC-BY-NC 4.0) on first use. MuQ runs on the CPU. The CPU path is slow.
+
+For URL identification (YouTube, TikTok, SoundCloud), yt-dlp needs the `curl_cffi`
+impersonation backend (in `requirements.txt`) and a current build. TikTok and
+YouTube change often, so use the nightly:
+
+```
+.venv/bin/pip install -U --pre "yt-dlp[default]"
+```
 
 ## Build the reference index
 
@@ -55,22 +61,40 @@ add a row and build the index again. You do not need to train the model again.
 
 ## Match
 
-Run the streamer. Upload a file, or load a YouTube or TikTok link and match it:
+Songbird runs as a localhost web app. Paste a URL or drop an audio/video file;
+it returns one song with Apple Music, Spotify, and TikTok links.
+
+Backend (FastAPI), from the repo root:
 
 ```
-.venv/bin/python songbird/streamer/link-stream.py
+.venv/bin/uvicorn server.app:app --port 8000
 ```
 
-Songbird runs the identification in a separate worker process
-(`songbird/streamer/identify_worker.py`). A native crash in the worker does not
-stop the streamer. The streamer resolves a loaded link again at match time. A
-simple fallback streamer is `songbird/streamer/prototypes/shell.py`.
+Frontend, in another terminal:
 
-Run without the streamer:
+```
+cd web && npm install && npm run dev
+```
+
+Open the Vite URL (http://localhost:5173). For a single-process setup, build the
+frontend (`cd web && npm run build`) and open http://localhost:8000 — the backend
+serves `web/dist`.
+
+The endpoint is also usable directly:
+
+```
+curl -F url='https://www.youtube.com/watch?v=...' localhost:8000/identify
+curl -F file=@live.mp3 localhost:8000/identify
+```
+
+Run without the web layer:
 
 ```
 .venv/bin/python -c "from songbird.matcher import match; print(match('live.mp3'))"
 ```
+
+The old PySide6 desktop streamer lives outside this repo at
+`../songbird-streamer-gui`.
 
 ## Self-checks
 

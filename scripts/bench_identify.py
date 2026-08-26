@@ -10,20 +10,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from songbird.matcher import match
 
 URLS = [
+    "https://www.youtube.com/watch?v=b4Zz-WXl5uM",
     "https://www.youtube.com/watch?v=4iHV1znFRwk",
     "https://www.youtube.com/watch?v=fWU1yZnesKs",
     "https://www.youtube.com/watch?v=FgyAFFoCAdc",
 ]
 
 GROUND_TRUTH = {
+    "https://www.youtube.com/watch?v=b4Zz-WXl5uM": ["She's Leaving You", "MJ Lenderman"],
     "https://www.youtube.com/watch?v=4iHV1znFRwk": ["Here", "Pavement"],
     "https://www.youtube.com/watch?v=fWU1yZnesKs": ["Tomorrow Never Knows", "The Beatles"],
     "https://www.youtube.com/watch?v=FgyAFFoCAdc": ["Out the Door", "Congress The Band"],
 }
 
 CONFIGS = {
-    "cap": {"max_seconds": 90, "recall_k": 5},
-    "full": {"max_seconds": None, "recall_k": 12},
+    "server": {"max_seconds": 90, "recall_k": 12},
 }
 
 

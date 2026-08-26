@@ -14,7 +14,8 @@ STOP = {"the", "and", "a", "of"}
 
 def chroma_seq(wav):
     hop = SR // FPS
-    c = librosa.feature.chroma_cqt(y=wav, sr=SR, hop_length=hop)
+    h = librosa.effects.harmonic(wav, margin=4.0)
+    c = librosa.feature.chroma_cens(y=h, sr=SR, hop_length=hop)
     c = c / (np.linalg.norm(c, axis=0, keepdims=True) + 1e-8)
     return c.T.astype(np.float32)
 
@@ -50,16 +51,23 @@ def _atoken(a):
     return _norm(a)
 
 
+def _base(song):
+    return re.sub(r"\s+", " ", re.sub(r"[\(\[].*?[\)\]]", "", song)).strip()
+
+
 def preview_url(song, artist):
+    base = _base(song) or song
     url = "https://itunes.apple.com/search?" + urllib.parse.urlencode(
-        {"term": f"{artist} {song}", "entity": "song", "limit": 8, "country": "US"})
+        {"term": f"{artist} {base}", "entity": "song", "limit": 12, "country": "US"})
     req = urllib.request.Request(url, headers={"User-Agent": "songbird-rerank/1.0"})
     try:
         res = json.load(urllib.request.urlopen(req, timeout=20)).get("results", [])
     except Exception:
         return None
+    want = set(_norm(base).split()) or set(_norm(song).split())
     for r in res:
-        if (r.get("previewUrl") and _norm(song) in _norm(r.get("trackName", ""))
+        track = set(_norm(r.get("trackName", "")).split())
+        if (r.get("previewUrl") and want and want <= track
                 and _atoken(artist) in _norm(r.get("artistName", ""))):
             return r["previewUrl"]
     return None

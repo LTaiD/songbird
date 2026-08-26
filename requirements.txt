@@ -3,8 +3,10 @@ muq
 librosa
 faiss-cpu
 soundfile
-yt-dlp
-python-vlc
-PySide6
+yt-dlp[default]
+curl_cffi>=0.10,<0.16
 certifi
 numpy
+fastapi
+uvicorn[standard]
+python-multipart

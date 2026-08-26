@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -44,6 +45,29 @@ ARTISTS = [
     "The Smashing Pumpkins", "Arctic Monkeys", "The War on Drugs", "Vampire Weekend",
 ]
 
+ARTISTS += [
+    "Nirvana", "Pearl Jam", "Soundgarden", "Alice in Chains", "Stone Temple Pilots",
+    "Foo Fighters", "Green Day", "Red Hot Chili Peppers", "Weezer", "Oasis", "Blur",
+    "Coldplay", "Muse", "The Killers", "Kings of Leon", "The White Stripes", "The Strokes",
+    "Franz Ferdinand", "Jack White", "Queens of the Stone Age", "Nine Inch Nails",
+    "Rage Against the Machine", "Third Eye Blind", "The Cranberries", "No Doubt",
+    "Blink-182", "My Chemical Romance", "Fall Out Boy", "Paramore", "Panic! at the Disco",
+    "Linkin Park", "System of a Down", "Incubus", "Hozier", "The Lumineers",
+    "Mumford & Sons", "Florence + the Machine", "Tame Impala", "Arcade Fire", "Bon Iver",
+    "The 1975", "Lana Del Rey", "Cage the Elephant", "Foster the People", "MGMT",
+    "Portugal. The Man", "Taylor Swift", "Adele", "Ed Sheeran", "Bruno Mars", "Beyonce",
+    "Rihanna", "Lady Gaga", "Katy Perry", "Justin Timberlake", "Maroon 5", "OneRepublic",
+    "Sia", "Billie Eilish", "Lorde", "Harry Styles", "Sam Smith", "Dua Lipa",
+    "Amy Winehouse", "John Mayer", "Alicia Keys", "Christina Aguilera", "Kelly Clarkson",
+    "Pink", "Michael Jackson", "Prince", "Queen", "Whitney Houston", "Mariah Carey",
+    "Kanye West", "Kendrick Lamar", "Drake", "Eminem", "Jay-Z", "Outkast", "The Weeknd",
+    "Frank Ocean", "Childish Gambino", "Tyler, The Creator", "Mac Miller", "J. Cole",
+    "Nas", "Lauryn Hill", "John Legend", "Usher", "D'Angelo", "SZA", "Anderson .Paak",
+    "Chris Stapleton", "Kacey Musgraves", "Miranda Lambert", "Luke Combs", "Dolly Parton",
+    "Willie Nelson", "Kenny Chesney", "Brad Paisley", "Stevie Wonder", "David Bowie",
+    "Elton John", "Billy Joel", "Simon & Garfunkel", "Bob Dylan", "The Beatles",
+]
+
 
 def norm(s):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", s.lower())).strip()
@@ -60,14 +84,27 @@ def key(artist, track):
     return norm(artist) + "|" + norm(track)
 
 
+def base(s):
+    return re.sub(r"\s*[\(\[].*", "", s).strip() or s
+
+
 def itunes(term, limit=25):
     url = "https://itunes.apple.com/search?" + urllib.parse.urlencode(
         {"term": term, "entity": "song", "limit": limit, "country": "US"})
     req = urllib.request.Request(url, headers={"User-Agent": "songbird-catalog/1.0"})
-    try:
-        return json.load(urllib.request.urlopen(req, timeout=30)).get("results", [])
-    except Exception:
-        return []
+    delay = 5.0
+    for attempt in range(6):
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=30)).get("results", [])
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429) and attempt < 5:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            return []
+        except Exception:
+            return []
+    return []
 
 
 def is_live(r):
@@ -160,6 +197,32 @@ def main():
         kk = key(t[1], t[0])
         if kk not in seen:
             seen.add(kk); targets.append(t)
+
+    track_files = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--tracks=")]
+    if track_files:
+        specs = []
+        for tf in track_files:
+            for line in open(tf, encoding="utf-8"):
+                line = line.strip()
+                if "|" in line:
+                    a, s = line.split("|", 1)
+                    specs.append((a.strip(), s.strip()))
+        print("tracks to resolve:", len(specs), flush=True)
+        chunk = 30
+        for c0 in range(0, len(specs), chunk):
+            targets.clear()
+            seen.clear()
+            for artist, song in specs[c0:c0 + chunk]:
+                b = base(song)
+                for r in itunes(f"{artist} {b}", 8):
+                    if ok(r) and norm(b) in norm(r["trackName"]) and atoken(artist) in norm(r.get("artistName", "")):
+                        add_target((r["trackName"], r["artistName"], r["previewUrl"], r.get("trackViewUrl", "")))
+                        break
+                time.sleep(4.0)
+            _process(targets, index, rows, manifest, max_songs)
+            print(f"batch through {min(c0 + chunk, len(specs))}/{len(specs)}", flush=True)
+            time.sleep(30)
+        return
 
     adds = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--add=")]
     if adds:

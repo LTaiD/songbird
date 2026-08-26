@@ -1,6 +1,0 @@
-# App (GUI) deps — install into .venv on Python 3.13.
-yt-dlp
-python-vlc
-PySide6
-certifi
-numpy

@@ -69,11 +69,17 @@ def match(audio_path, data_dir="data/catalog", k=3, tau=0.1, win_s=10, hop_s=5,
     if not cands:
         return None
     pred = cands[0]
-    if rerank and len(cands) > 1:
+    if rerank:
         try:
-            rr = chroma_rerank(wav, cands)
-            if rr:
-                pred = rr[0][0]
+            from .chroma_index import fuse, load_store
+            if load_store(data_dir):
+                fu = fuse(wav, data_dir, cands)
+                if fu:
+                    pred = fu[0][0]
+            elif len(cands) > 1:
+                rr = chroma_rerank(wav, cands)
+                if rr:
+                    pred = rr[0][0]
         except Exception:
             pass
     return pred[0], pred[1], _apple_url(rows, pred)
