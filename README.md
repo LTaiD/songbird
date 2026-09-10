@@ -159,6 +159,26 @@ and uses `recall_k=12`.
 .venv/bin/python -c "from songbird.matcher import match; print(match('live.mp3'))"
 ```
 
+## Deploy
+
+Frontend and backend deploy separately — the backend is a heavy, stateful ML
+service and does **not** fit serverless platforms.
+
+**Frontend → Vercel** (config in `web/vercel.json`):
+1. New Vercel project from this repo, **Root Directory = `web`** (Vite is
+   auto-detected).
+2. Set env var **`VITE_API_BASE`** = your backend's URL (e.g.
+   `https://your-backend.hf.space`). This is public — it ships in the browser
+   bundle, so it must be a URL, never a secret. See `web/.env.example`.
+
+**Backend → a Docker container host** with a persistent volume for the catalog
+and MuQ model cache (Hugging Face Spaces free 16 GB Docker, or Render/Railway/
+Fly.io). Then:
+- widen CORS in `server/app.py` from `localhost:5173` to your Vercel domain
+  (never `*`), and
+- before exposing it publicly, add the guards listed under
+  **Security & deploying publicly** below.
+
 ## Project layout
 
 ```

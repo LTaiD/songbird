@@ -55,7 +55,7 @@ export async function identify(input: IdentifyInput): Promise<IdentifyResult> {
 
   let res: Response
   try {
-    res = await fetch('/identify', { method: 'POST', body })
+    res = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}/identify`, { method: 'POST', body })
   } catch {
     throw new Error('Could not reach the identifier. Is the backend running?')
   }
