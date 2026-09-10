@@ -6,7 +6,7 @@ returns one answer: the song name, the artist, and links to the studio version
 on Apple Music, Spotify, and TikTok.
 
 It finds the same song when the tempo, the key, the arrangement, or the
-performance changes — even across a cover by a different band. It matches on
+performance changes - even across a cover by a different band. It matches on
 musical identity, not on an exact-audio fingerprint (it is not Shazam).
 
 ## How it works
@@ -27,10 +27,10 @@ audio / video file, or a URL
 
 Two signals, deliberately orthogonal:
 
-- **MuQ timbre retrieval** — frozen pretrained embeddings + kNN. Strong recall
+- **MuQ timbre retrieval** - frozen pretrained embeddings + kNN. Strong recall
   (the right song is almost always in the top few), but Top-1 is fragile at
   scale and can land on a sonically-adjacent wrong song.
-- **Chroma / chord-progression rerank** — HPSS harmonic separation + CENS +
+- **Chroma / chord-progression rerank** - HPSS harmonic separation + CENS +
   transposition-invariant local alignment. Survives distortion and instrument
   changes, and IDs song identity across a different band. It's what promotes the
   correct song past a timbre-neighbour confuser.
@@ -64,11 +64,15 @@ TikTok and YouTube change often, so use the nightly:
 ## The reference catalog
 
 Songbird matches against a catalog of studio tracks. The matcher defaults to
-`data/catalog/` — a prebuilt index of ~3,600 songs (FAISS index + row map +
-chroma fingerprint store) drawn from Apple Music editorial playlists. Each row
-is `[song, artist, apple_url]`.
+`data/catalog/` (FAISS index + row map + chroma fingerprint store); each row is
+`[song, artist, apple_url]`.
 
-To build or extend the catalog yourself:
+**`data/` is gitignored, so a fresh clone has no catalog — you must build one
+before the app can identify anything.** The catalog is derived from copyrighted
+Apple Music / iTunes content and is not redistributed here. Building your own
+took ~3,600 songs from Apple Music editorial playlists.
+
+To build the catalog:
 
 ```
 # 1. Studio embeddings → data/catalog/index.faiss + index_map.json
@@ -224,6 +228,25 @@ End-to-end benchmark on the known real queries:
   tested and made open-set retrieval worse at PoC scale (overfits, warps unseen
   songs). Raw MuQ has the correct ordering. `data/projection.pt` exists but is
   not wired into the pipeline. Revisit only with 100s–1000s of training songs.
+
+## Security & deploying publicly
+
+Songbird is built to run **locally**. The `/identify` endpoint has no auth or
+rate limiting, accepts unbounded uploads, and — for URL input — makes the server
+fetch an arbitrary URL via yt-dlp/ffmpeg. On localhost that's fine. If you expose
+it to the internet, first add: authentication or a rate limit (CPU inference is
+easy to DoS), an upload size cap, and an SSRF guard on the fetched URL (block
+private/loopback/link-local ranges and non-http(s) schemes). CORS is currently
+pinned to `localhost:5173` and would need widening — do that deliberately, not
+with `*`. No secrets are stored in this repo; keep it that way.
+
+## Licensing
+
+- **Code**: see `LICENSE` (add one before publishing).
+- **MuQ** (`OpenMuQ/MuQ-large-msd-iter`) is **CC-BY-NC 4.0 — non-commercial**.
+  This makes the project a research/demo build, not a commercial one.
+- **Catalog & reference audio** derive from copyrighted Apple Music / iTunes
+  content and are **not** included in the repo. You build your own locally.
 
 ## Method
 

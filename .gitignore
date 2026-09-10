@@ -236,3 +236,9 @@ frontend/.wrangler/
 # Songbird reference media (keep metadata.csv, ignore audio/video)
 reference/*
 !reference/metadata.csv
+
+# Scratch work + retired experiment indices (not part of the shipped app)
+scratchpad/
+data_big/
+data_equal/
+data_equal_proj/
