@@ -242,3 +242,7 @@ scratchpad/
 data_big/
 data_equal/
 data_equal_proj/
+
+# Local agent tooling / vendored skills (kept private, not part of the app)
+.claude/
+web/.agents/
