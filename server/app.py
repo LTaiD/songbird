@@ -86,14 +86,21 @@ def _fetch_audio(page_url):
     _check_public_url(page_url)
     import yt_dlp
     opts = {"format": "bestaudio/best", "quiet": True, "noplaylist": True,
-            "cachedir": False, "remote_components": ["ejs:github"]}
+            "cachedir": False, "remote_components": ["ejs:github"],
+            "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "mweb", "default"]}}}
     try:
         from yt_dlp.networking.impersonate import ImpersonateTarget
         opts["impersonate"] = ImpersonateTarget()
     except Exception:
         pass
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(page_url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(page_url, download=False)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "sign in" in msg or "not a bot" in msg or "cookies" in msg:
+            raise RuntimeError("YouTube is blocking downloads from the server for this video. Upload the file, or try a TikTok or SoundCloud link.")
+        raise RuntimeError("Could not fetch audio from that link. Try uploading the file instead.")
     auds = [f for f in info.get("formats", [])
             if f.get("acodec") not in (None, "none")
             and f.get("vcodec") in (None, "none") and f.get("url")]
