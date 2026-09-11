@@ -36,7 +36,12 @@ app = modal.App(APP_NAME)
 @modal.asgi_app()
 def web():
     import os
-    os.environ["SONGBIRD_CATALOG"] = "/data/catalog"
+    base = "/data/catalog"
+    if not os.path.exists(os.path.join(base, "index.faiss")):
+        nested = os.path.join(base, "catalog")
+        if os.path.exists(os.path.join(nested, "index.faiss")):
+            base = nested
+    os.environ["SONGBIRD_CATALOG"] = base
     os.environ["SONGBIRD_ALLOWED_ORIGINS"] = ALLOWED_ORIGINS
     from server.app import app as fastapi_app
     return fastapi_app
