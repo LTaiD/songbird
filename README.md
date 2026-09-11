@@ -262,18 +262,21 @@ End-to-end benchmark on the known real queries:
 
 ## Security & deploying publicly
 
-The public `/identify` endpoint ships with baseline guards: uploads are capped
-at 30 MB (413 over that), and URL input is validated before fetch — only
-`http(s)` schemes, and hosts resolving to private/loopback/link-local ranges are
-rejected (SSRF guard, `_check_public_url` in `server/app.py`). CORS is
-env-driven (`SONGBIRD_ALLOWED_ORIGINS`), defaulting to localhost — set it to your
-frontend domain in production, never `*`. On Modal, `max_containers` bounds the
-DoS/cost blast radius.
+The public `/identify` endpoint ships with baseline guards:
+- **Rate limit**: per-IP fixed window (`SONGBIRD_RATE_LIMIT` requests per
+  `SONGBIRD_RATE_WINDOW` seconds, default 10/60s → 429 over that). In-memory per
+  container; client IP is taken from `X-Forwarded-For`.
+- **Upload cap**: 30 MB (413 over that).
+- **SSRF guard** (`_check_public_url`): URL input must be `http(s)` and must not
+  resolve to private/loopback/link-local ranges, checked before fetch.
+- **CORS**: env-driven (`SONGBIRD_ALLOWED_ORIGINS`), defaulting to localhost —
+  set it to your frontend domain in production, never `*`.
+- On Modal, `max_containers` bounds the DoS/cost blast radius.
 
-**Still deferred** (add if traffic warrants): a per-IP rate limit and/or auth on
-`/identify` — CPU inference is expensive, so a flood is costly even with the
-container cap. The SSRF guard checks the user-supplied URL but not every
-redirect yt-dlp follows. No secrets are stored in this repo; keep it that way.
+The rate limit is per-container (not global) and the SSRF guard checks the
+user-supplied URL but not every redirect yt-dlp follows — fine for this scale;
+add a shared store (Redis) and/or auth if traffic grows. No secrets are stored in
+this repo; keep it that way.
 
 ## Licensing
 

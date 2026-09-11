@@ -3,7 +3,9 @@ import os
 import socket
 import subprocess
 import tempfile
+import time
 import warnings
+from collections import defaultdict, deque
 from urllib.parse import urlparse
 
 warnings.filterwarnings("ignore", message=r".*weight_norm.*", category=FutureWarning)
@@ -12,7 +14,7 @@ from songbird.matcher import match
 from songbird.links import links
 from songbird.audio import SR
 
-from fastapi import FastAPI, Form, File, UploadFile
+from fastapi import FastAPI, Form, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +36,10 @@ _origins = os.environ.get("SONGBIRD_ALLOWED_ORIGINS")
 ALLOWED_ORIGINS = ([o.strip() for o in _origins.split(",") if o.strip()]
                    if _origins else ["http://localhost:5173", "http://127.0.0.1:5173"])
 
+RATE_LIMIT = int(os.environ.get("SONGBIRD_RATE_LIMIT", "10"))
+RATE_WINDOW = float(os.environ.get("SONGBIRD_RATE_WINDOW", "60"))
+_hits = defaultdict(deque)
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +47,24 @@ app.add_middleware(
     allow_methods=["POST"],
     allow_headers=["*"],
 )
+
+
+def _client_id(request):
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_ok(client):
+    now = time.monotonic()
+    dq = _hits[client]
+    while dq and now - dq[0] > RATE_WINDOW:
+        dq.popleft()
+    if len(dq) >= RATE_LIMIT:
+        return False
+    dq.append(now)
+    return True
 
 
 def _check_public_url(page_url):
@@ -105,7 +129,9 @@ def _to_wav(path):
 
 
 @app.post("/identify")
-async def identify(url: str = Form(None), file: UploadFile = File(None)):
+async def identify(request: Request, url: str = Form(None), file: UploadFile = File(None)):
+    if not _rate_ok(_client_id(request)):
+        return JSONResponse(status_code=429, content={"error": "Too many requests. Please wait a moment and try again."})
     url = (url or "").strip()
     upload_path = None
     src = None
