@@ -1,5 +1,7 @@
 # Songbird
 
+![Songbird](assets/screenshot.png)
+
 Songbird finds the studio original of a live recording. Give it an audio file, a
 video file, or a link (YouTube, TikTok, SoundCloud, direct media). Songbird
 returns one answer: the song name, the artist, and links to the studio version
