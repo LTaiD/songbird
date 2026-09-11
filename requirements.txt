@@ -1,4 +1,5 @@
-torch
+torch==2.13.0
+transformers==5.15.0
 muq
 librosa
 faiss-cpu
