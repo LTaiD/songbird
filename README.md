@@ -2,43 +2,32 @@
 
 ![Songbird](assets/screenshot.png)
 
-Songbird finds the studio original of a live recording. Give it an audio file, a
-video file, or a link (YouTube, TikTok, SoundCloud, direct media). Songbird
-returns one answer: the song name, the artist, and links to the studio version
-on Apple Music, Spotify, and TikTok.
+Songbird finds the studio original of a live recording. You give it an audio file, a video file, or a link. It tells you the song and the artist. It links the studio version on Apple Music, Spotify, and TikTok.
 
-It finds the same song when the tempo, the key, the arrangement, or the
-performance changes - even across a cover by a different band. It matches on
-musical identity, not on an exact-audio fingerprint (it is not Shazam).
+It works when the tempo, key, arrangement, or performance changes. It even works on a cover by a different band. It matches on musical identity, the way the song actually goes. Shazam needs the exact recording. Songbird doesn't.
 
 ## How it works
 
 ```
-audio / video file, or a URL
-  → ffmpeg extracts audio from video/URLs; librosa reads it at 24 kHz mono
-  → music-activity trim (drop spoken intros / silence, keep the music span)
-  → split into 10 s windows, 5 s hop
-  → MuQ makes a per-window embedding (CPU) → mean-pool over time → L2-normalize
-  → FAISS IndexFlatIP (cosine) → per-window top-k, temperature-weighted vote
-  → keep the most-confident ~⅓ of windows → sum votes across windows → recall set
-  → chroma / chord-progression rerank (HPSS + CENS, orthogonal to timbre)
-       fused with a precomputed catalog chroma store, gated against the MuQ recall set
-  → single argmax → (song, artist, Apple URL)
-  → Apple Music / Spotify / TikTok links
+audio or video file, or a URL
+  -> ffmpeg pulls the audio, librosa reads it at 24 kHz mono
+  -> trim to the music (drop spoken intros and silence)
+  -> split into 10s windows, 5s hop
+  -> MuQ embeds each window on CPU, mean-pool over time, L2-normalize
+  -> FAISS IndexFlatIP (cosine), per-window top-k, temperature-weighted vote
+  -> keep the most confident ~1/3 of windows, sum votes, build a recall set
+  -> chroma chord-progression rerank, fused with the catalog chroma store
+  -> single argmax, then song, artist, Apple URL
+  -> Apple Music, Spotify, and TikTok links
 ```
 
-Two signals, deliberately orthogonal:
+Two signals do the work. They are deliberately different.
 
-- **MuQ timbre retrieval** - frozen pretrained embeddings + kNN. Strong recall
-  (the right song is almost always in the top few), but Top-1 is fragile at
-  scale and can land on a sonically-adjacent wrong song.
-- **Chroma / chord-progression rerank** - HPSS harmonic separation + CENS +
-  transposition-invariant local alignment. Survives distortion and instrument
-  changes, and IDs song identity across a different band. It's what promotes the
-  correct song past a timbre-neighbour confuser.
+**MuQ timbre retrieval.** Frozen pretrained embeddings with kNN. Recall is strong. The right song is almost always in the top few. But top-1 gets shaky at scale, and it can land on a song that just sounds similar.
 
-No model training, no API keys. Frozen embeddings, kNN retrieval, and
-performance-level aggregation.
+**Chroma chord-progression rerank.** HPSS harmonic separation, CENS, and transposition-invariant local alignment. It survives distortion and instrument changes. It knows the song across a totally different band. This is what pushes the correct song past a look-alike.
+
+No training. No API keys. It is frozen embeddings plus kNN retrieval, aggregated at the performance level.
 
 ## Setup
 
@@ -47,113 +36,90 @@ python3.13 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Install **ffmpeg** first (`brew install ffmpeg`). Songbird downloads MuQ
-(`OpenMuQ/MuQ-large-msd-iter`, CC-BY-NC 4.0 — non-commercial) on first use. MuQ
-runs on the CPU; the CPU path is slow but works.
+Install ffmpeg first with `brew install ffmpeg`. Songbird downloads MuQ on first use. That model is `OpenMuQ/MuQ-large-msd-iter`, licensed CC-BY-NC 4.0, so this is a non-commercial build. MuQ runs on CPU. It is slow but it works.
 
-For URL identification (YouTube, TikTok, SoundCloud), yt-dlp needs the
-`curl_cffi` impersonation backend (in `requirements.txt`) and a current build.
-TikTok and YouTube change often, so use the nightly:
+For link identification, yt-dlp needs the `curl_cffi` backend and a current build. TikTok and YouTube change often, so use the nightly.
 
 ```
 .venv/bin/pip install -U --pre "yt-dlp[default]"
 ```
 
-> YouTube note: some videos now require a PO token and will 403 on download.
-> TikTok, SoundCloud, direct media links, and file uploads work. Adding a
-> PO-token provider is the fix and is deferred.
+One catch with YouTube. Some videos now need a PO token and will 403 on download. TikTok, SoundCloud, direct media, and file uploads all work.
 
 ## The reference catalog
 
-Songbird matches against a catalog of studio tracks. The matcher defaults to
-`data/catalog/` (FAISS index + row map + chroma fingerprint store); each row is
-`[song, artist, apple_url]`.
+Songbird matches against a catalog of studio tracks. The matcher defaults to `data/catalog`. Each row holds the song, the artist, and an Apple URL.
 
-**`data/` is gitignored, so a fresh clone has no catalog — you must build one
-before the app can identify anything.** The catalog is derived from copyrighted
-Apple Music / iTunes content and is not redistributed here. Building your own
-took ~3,600 songs from Apple Music editorial playlists.
+`data/` is gitignored, so a fresh clone has no catalog. You build one before the app can identify anything. The catalog comes from copyrighted Apple Music and iTunes content, so I don't ship it here. Mine has about 3,600 songs from Apple Music editorial playlists.
 
-To build the catalog:
+Build the catalog.
 
 ```
-# 1. Studio embeddings → data/catalog/index.faiss + index_map.json
-.venv/bin/python build_catalog.py --tracks path/to/Artist|Song.txt
-#    (resumable: re-run to continue; --reset retries skips; --max=N caps)
-
-# 2. Chroma fingerprints → data/catalog/chroma.pkl (used by the rerank fusion)
+.venv/bin/python build_catalog.py --tracks path/to/tracks.txt
 .venv/bin/python build_chroma.py
 ```
 
-`build_catalog.py` resolves each track via the iTunes Search API and embeds the
-30 s preview. `build_chroma.py` auto-discovers new songs from `index_map.json`.
-Both are resumable via a manifest / checkpoints. Watch progress with
-`scripts/progress.py`.
+`build_catalog.py` resolves each track through the iTunes Search API and embeds the 30-second preview. `build_chroma.py` finds new songs from `index_map.json` on its own. Both resume from a manifest, so you can re-run them. Watch progress with `scripts/progress.py`.
 
-> iTunes rate-limit: the Search API hard-bans the IP after a burst. The builders
-> pace requests (~4 s each) with exponential backoff; if you get banned, wait
-> ~15–30 min before resuming.
+The iTunes API bans your IP after a burst. The builders pace requests and back off. If you get banned, wait 15 to 30 minutes.
 
 ### Bring your own reference songs
 
-For a small hand-curated set instead of the catalog, put studio files in
-`reference/`, list them in `reference/metadata.csv`:
+For a small hand-picked set, drop studio files in `reference/` and list them in `reference/metadata.csv`.
 
 ```
 filename,song,artist
 so_what.mp3,So What,Miles Davis
 ```
 
-then build a `data/` index:
+Then build a small index.
 
 ```
 .venv/bin/python build_reference.py
 ```
 
-and point the matcher at it with `data_dir="data"`.
+Pass `data_dir="data"` to `match()` to use it.
 
 ## Run it
 
-Songbird runs as a localhost web app: paste a link or drop an audio/video file,
-get one result card with Apple Music, Spotify, and TikTok links.
+Songbird runs as a localhost web app. Paste a link or drop a file. You get one result card with Apple Music, Spotify, and TikTok links.
 
-Backend (FastAPI), from the repo root:
+Start the backend from the repo root.
 
 ```
 .venv/bin/uvicorn server.app:app --port 8000
 ```
 
-Frontend, in another terminal:
+Start the frontend in another terminal.
 
 ```
 cd web && npm install && npm run dev
 ```
 
-Open the Vite URL (http://localhost:5173). For a single process, build the
-frontend and let the backend serve it:
+Open the Vite URL at http://localhost:5173. For one process, build the frontend and let the backend serve it.
 
 ```
-cd web && npm run build      # → web/dist
-# then open http://localhost:8000
+cd web && npm run build
 ```
 
-### API
+Then open http://localhost:8000.
 
-`POST /identify` (multipart; `url` wins over `file`):
+### The API
+
+POST to `/identify` with multipart form data. A `url` field wins over a `file` field.
 
 ```
 curl -F url='https://www.tiktok.com/@user/video/...' localhost:8000/identify
 curl -F file=@live.mp3 localhost:8000/identify
 ```
 
-Returns exactly:
+It returns five fields.
 
 ```json
 {"song": "...", "artist": "...", "apple": "...", "spotify": "...", "tiktok": "..."}
 ```
 
-`null` result → 422; fetch/decode errors → 400. The server caps queries at 90 s
-and uses `recall_k=12`.
+A null result returns 422. A fetch or decode error returns 400. The server caps queries at 90 seconds and uses `recall_k=12`.
 
 ### Without the web layer
 
@@ -163,62 +129,49 @@ and uses `recall_k=12`.
 
 ## Deploy
 
-Frontend and backend deploy separately — the backend is a heavy, stateful ML
-service and does **not** fit serverless platforms.
+The frontend and backend deploy in different places. The backend is a heavy, stateful ML service, so it does not fit serverless.
 
-**Frontend → Vercel** (config in `web/vercel.json`, root directory `web`). Set
-env var **`VITE_API_BASE`** = your backend's URL. It's public — it ships in the
-browser bundle, so it must be a URL, never a secret. See `web/.env.example`.
+The frontend goes on Vercel. Config lives in `web/vercel.json` with root directory `web`. Set `VITE_API_BASE` to your backend URL. That value is public. It ships in the browser bundle, so it must never hold a secret. See `web/.env.example`.
 
-**Backend → Modal** (`deploy/modal_app.py`; no Dockerfile — the image is built
-in Python). The MuQ model is baked into the image; the reference catalog lives
-on a persistent Modal Volume.
+The backend goes on Modal. See `deploy/modal_app.py`. There is no Dockerfile. Modal builds the image in Python. The MuQ model bakes into the image. The catalog lives on a Modal volume.
 
 ```
 pip install modal
-modal token new                                  # authenticate (interactive)
+modal token new
 modal volume create songbird-catalog
-modal volume put songbird-catalog ./data/catalog /   # upload the ~86 MB catalog
-modal deploy deploy/modal_app.py                 # prints the public web URL
+modal volume put songbird-catalog ./data/catalog /
+modal deploy deploy/modal_app.py
 ```
 
-Then set `VITE_API_BASE` on Vercel to the printed Modal URL and redeploy the
-frontend. The backend reads two env vars (set in `modal_app.py`):
-`SONGBIRD_CATALOG` (catalog path) and `SONGBIRD_ALLOWED_ORIGINS` (comma-separated
-CORS allow-list — set to your Vercel domain, never `*`). Both default to the
-local values when unset, so local runs are unaffected.
-
-The public endpoint caps uploads at 30 MB and blocks non-http(s) / private-network
-URLs (SSRF guard); `max_containers` in `modal_app.py` bounds cost under load. See
-**Security & deploying publicly** for what's still deferred.
+Set `VITE_API_BASE` on Vercel to the printed Modal URL and redeploy the frontend. The backend reads two env vars from `modal_app.py`. `SONGBIRD_CATALOG` sets the catalog path. `SONGBIRD_ALLOWED_ORIGINS` sets the CORS allow-list. Both default to local values, so local runs stay the same.
 
 ## Project layout
 
 ```
 songbird/            core pipeline (importable, no side effects beyond MuQ load)
-  audio.py           load / decode to 24 kHz mono (ffmpeg for video + URLs)
-  activity.py        music-activity detection + trim (RMS, HPSS, chroma peakiness)
-  windowing.py       10 s / 5 s windows
-  embed.py           MuQ per-window embedding → mean-pool → L2-norm
-  index.py           FAISS load; OpenMP thread cap (see note below)
-  matcher.py         windowed vote + gated chroma-fusion → single answer
+  audio.py           load / decode to 24 kHz mono (ffmpeg for video and URLs)
+  activity.py        music-activity detection and trim (RMS, HPSS, chroma peakiness)
+  windowing.py       10s / 5s windows
+  embed.py           MuQ per-window embedding, mean-pool, L2-norm
+  index.py           FAISS load, OpenMP thread cap (see note below)
+  matcher.py         windowed vote and gated chroma-fusion, single answer
   rerank.py          chroma_cens / OTI / local alignment scoring
-  chroma_index.py    precomputed chroma store + gated fuse()
+  chroma_index.py    precomputed chroma store and gated fuse()
   links.py           Apple / Spotify / TikTok search URLs
-  projection.py      SupCon projection (NOT wired in — see Notes)
-server/app.py        FastAPI /identify; serves web/dist; CORS for :5173
+  projection.py      SupCon projection (NOT wired in, see Notes)
+server/app.py        FastAPI /identify, serves web/dist, CORS for :5173
 web/                 Vite + React 19 + TS + Tailwind v4 frontend
-build_catalog.py     build/extend the studio embedding catalog (iTunes)
-build_chroma.py      build/extend the chroma fingerprint store
+build_catalog.py     build or extend the studio embedding catalog (iTunes)
+build_chroma.py      build or extend the chroma fingerprint store
 build_reference.py   build a small index from reference/metadata.csv
 scripts/             add_songs, bench_identify, fetch_playlists, progress
-data/catalog/        prebuilt catalog: index.faiss, index_map.json, chroma.pkl
-specs/               Spec Kit specs (001-songbird … 004-web-frontend)
+data/catalog/        prebuilt catalog, index.faiss, index_map.json, chroma.pkl
+specs/               Spec Kit specs (001-songbird ... 004-web-frontend)
 ```
 
 ## Self-checks
 
-Each core module has an assert-based check:
+Each core module has an assert-based check.
 
 ```
 .venv/bin/python -m songbird.audio
@@ -230,16 +183,15 @@ Each core module has an assert-based check:
 .venv/bin/python -m songbird.links
 ```
 
-Backend contract tests (run from the repo root):
+Run the backend contract tests from the repo root.
 
 ```
 .venv/bin/python -m pytest
 ```
 
-(Use `-m pytest`, not bare `pytest` — the test does `import server.app` with no
-`sys.path` setup at collection time.)
+Use `-m pytest`, not bare `pytest`. The test imports `server.app` with no sys.path setup at collection time.
 
-End-to-end benchmark on the known real queries:
+Run the end-to-end benchmark on the known queries.
 
 ```
 .venv/bin/python scripts/bench_identify.py
@@ -247,48 +199,38 @@ End-to-end benchmark on the known real queries:
 
 ## Notes
 
-- **Single answer, always.** Exactly one song + links. No shortlist.
-- **Accuracy tracks the paper's Top-1/Top-5 gap.** The correct song is almost
-  always in the neighbourhood, and aggregation + chroma rerank push it toward
-  rank 1 — but hard live/cover queries can still return a sonically-adjacent
-  wrong answer. This is a hard problem; expect some misses.
-- **OpenMP clash (macOS/arm), load-bearing:** torch and faiss-cpu each ship
-  their own libomp. `songbird/__init__.py` sets `KMP_DUPLICATE_LIB_OK=TRUE` and
-  `songbird/index.py` caps faiss to one thread. Import a `songbird` module
-  (torch) *before* `import faiss` in any ad-hoc script, or the MuQ forward pass
-  segfaults.
-- **Supervised-contrastive projection (`projection.py`) is not used.** It was
-  tested and made open-set retrieval worse at PoC scale (overfits, warps unseen
-  songs). Raw MuQ has the correct ordering. `data/projection.pt` exists but is
-  not wired into the pipeline. Revisit only with 100s–1000s of training songs.
+**One answer, always.** Exactly one song and its links. No shortlist.
 
-## Security & deploying publicly
+**Accuracy tracks the paper's top-1 vs top-5 gap.** The right song is almost always nearby. Aggregation and the chroma rerank push it toward rank 1. Hard live and cover queries can still return a look-alike. This is a hard problem. Expect some misses.
 
-The public `/identify` endpoint ships with baseline guards:
-- **Rate limit**: per-IP fixed window (`SONGBIRD_RATE_LIMIT` requests per
-  `SONGBIRD_RATE_WINDOW` seconds, default 10/60s → 429 over that). In-memory per
-  container; client IP is taken from `X-Forwarded-For`.
-- **Upload cap**: 30 MB (413 over that).
-- **SSRF guard** (`_check_public_url`): URL input must be `http(s)` and must not
-  resolve to private/loopback/link-local ranges, checked before fetch.
-- **CORS**: env-driven (`SONGBIRD_ALLOWED_ORIGINS`), defaulting to localhost —
-  set it to your frontend domain in production, never `*`.
-- On Modal, `max_containers` bounds the DoS/cost blast radius.
+**The OpenMP clash is load-bearing on macOS arm.** torch and faiss-cpu each ship their own libomp. `songbird/__init__.py` sets `KMP_DUPLICATE_LIB_OK=TRUE`. `songbird/index.py` caps faiss to one thread. In any ad-hoc script, import a songbird module before you import faiss, or the MuQ forward pass segfaults.
 
-The rate limit is per-container (not global) and the SSRF guard checks the
-user-supplied URL but not every redirect yt-dlp follows — fine for this scale;
-add a shared store (Redis) and/or auth if traffic grows. No secrets are stored in
-this repo; keep it that way.
+**The projection is not used.** I tested `songbird/projection.py` and it made open-set retrieval worse at small scale. It overfits and warps unseen songs. Raw MuQ has the right ordering. `data/projection.pt` exists but nothing wires it in. Revisit it only with hundreds or thousands of training songs.
+
+## Security and going public
+
+The `/identify` endpoint ships with basic guards.
+
+**Rate limit.** Per-IP fixed window. `SONGBIRD_RATE_LIMIT` requests per `SONGBIRD_RATE_WINDOW` seconds, default 10 per 60. Over that returns 429. It is in-memory per container. The client IP comes from `X-Forwarded-For`.
+
+**Upload cap.** 30 MB. Over that returns 413.
+
+**SSRF guard.** See `_check_public_url`. A URL must be http or https. It must not resolve to a private, loopback, or link-local range. The check runs before any fetch.
+
+**CORS.** Driven by `SONGBIRD_ALLOWED_ORIGINS`. It defaults to localhost. Set it to your frontend domain in production. Never use a wildcard.
+
+On Modal, `max_containers` bounds the cost if someone floods it.
+
+The rate limit is per container, not global. The SSRF guard checks the user's URL but not every redirect yt-dlp follows. That is fine at this scale. Add a shared store like Redis, or auth, if traffic grows. I keep no secrets in this repo. Keep it that way.
 
 ## Licensing
 
-- **Code**: see `LICENSE` (add one before publishing).
-- **MuQ** (`OpenMuQ/MuQ-large-msd-iter`) is **CC-BY-NC 4.0 — non-commercial**.
-  This makes the project a research/demo build, not a commercial one.
-- **Catalog & reference audio** derive from copyrighted Apple Music / iTunes
-  content and are **not** included in the repo. You build your own locally.
+The code is MIT. See `LICENSE`.
+
+MuQ (`OpenMuQ/MuQ-large-msd-iter`) is CC-BY-NC 4.0. That makes this a research and demo build, not a commercial one.
+
+The catalog and reference audio come from copyrighted Apple Music and iTunes content. They are not in the repo. You build your own.
 
 ## Method
 
-Method follows the *tip-of-my-ear* paper (Eser, ICML 2026 workshop),
-findings-only — no paper code imported.
+The method follows the tip-of-my-ear paper by Eser, from the ICML 2026 workshop. I used the findings only. I imported no paper code.
