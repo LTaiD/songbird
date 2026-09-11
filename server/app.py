@@ -1,7 +1,10 @@
+import ipaddress
 import os
+import socket
 import subprocess
 import tempfile
 import warnings
+from urllib.parse import urlparse
 
 warnings.filterwarnings("ignore", message=r".*weight_norm.*", category=FutureWarning)
 
@@ -23,19 +26,40 @@ except Exception:
     pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CATALOG = os.path.join(ROOT, "data", "catalog")
+CATALOG = os.environ.get("SONGBIRD_CATALOG", os.path.join(ROOT, "data", "catalog"))
 DIST = os.path.join(ROOT, "web", "dist")
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+
+_origins = os.environ.get("SONGBIRD_ALLOWED_ORIGINS")
+ALLOWED_ORIGINS = ([o.strip() for o in _origins.split(",") if o.strip()]
+                   if _origins else ["http://localhost:5173", "http://127.0.0.1:5173"])
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["POST"],
     allow_headers=["*"],
 )
 
 
+def _check_public_url(page_url):
+    u = urlparse(page_url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise RuntimeError("Only http(s) URLs are supported.")
+    try:
+        infos = socket.getaddrinfo(u.hostname, None)
+    except socket.gaierror:
+        raise RuntimeError("Could not resolve that URL.")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise RuntimeError("That URL is not allowed.")
+
+
 def _fetch_audio(page_url):
+    _check_public_url(page_url)
     import yt_dlp
     opts = {"format": "bestaudio/best", "quiet": True, "noplaylist": True,
             "cachedir": False, "remote_components": ["ejs:github"]}
@@ -91,8 +115,13 @@ async def identify(url: str = Form(None), file: UploadFile = File(None)):
         elif file is not None:
             suffix = os.path.splitext(file.filename or "")[1] or ".bin"
             fd, upload_path = tempfile.mkstemp(suffix=suffix)
+            size = 0
             with os.fdopen(fd, "wb") as out:
-                out.write(await file.read())
+                while chunk := await file.read(1 << 20):
+                    size += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        return JSONResponse(status_code=413, content={"error": "File too large (max 30 MB)."})
+                    out.write(chunk)
             src = _to_wav(upload_path)
         else:
             return JSONResponse(status_code=400, content={"error": "Provide a URL or a file."})

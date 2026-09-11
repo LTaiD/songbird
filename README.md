@@ -164,20 +164,31 @@ and uses `recall_k=12`.
 Frontend and backend deploy separately — the backend is a heavy, stateful ML
 service and does **not** fit serverless platforms.
 
-**Frontend → Vercel** (config in `web/vercel.json`):
-1. New Vercel project from this repo, **Root Directory = `web`** (Vite is
-   auto-detected).
-2. Set env var **`VITE_API_BASE`** = your backend's URL (e.g.
-   `https://your-backend.hf.space`). This is public — it ships in the browser
-   bundle, so it must be a URL, never a secret. See `web/.env.example`.
+**Frontend → Vercel** (config in `web/vercel.json`, root directory `web`). Set
+env var **`VITE_API_BASE`** = your backend's URL. It's public — it ships in the
+browser bundle, so it must be a URL, never a secret. See `web/.env.example`.
 
-**Backend → a Docker container host** with a persistent volume for the catalog
-and MuQ model cache (Hugging Face Spaces free 16 GB Docker, or Render/Railway/
-Fly.io). Then:
-- widen CORS in `server/app.py` from `localhost:5173` to your Vercel domain
-  (never `*`), and
-- before exposing it publicly, add the guards listed under
-  **Security & deploying publicly** below.
+**Backend → Modal** (`deploy/modal_app.py`; no Dockerfile — the image is built
+in Python). The MuQ model is baked into the image; the reference catalog lives
+on a persistent Modal Volume.
+
+```
+pip install modal
+modal token new                                  # authenticate (interactive)
+modal volume create songbird-catalog
+modal volume put songbird-catalog ./data/catalog /   # upload the ~86 MB catalog
+modal deploy deploy/modal_app.py                 # prints the public web URL
+```
+
+Then set `VITE_API_BASE` on Vercel to the printed Modal URL and redeploy the
+frontend. The backend reads two env vars (set in `modal_app.py`):
+`SONGBIRD_CATALOG` (catalog path) and `SONGBIRD_ALLOWED_ORIGINS` (comma-separated
+CORS allow-list — set to your Vercel domain, never `*`). Both default to the
+local values when unset, so local runs are unaffected.
+
+The public endpoint caps uploads at 30 MB and blocks non-http(s) / private-network
+URLs (SSRF guard); `max_containers` in `modal_app.py` bounds cost under load. See
+**Security & deploying publicly** for what's still deferred.
 
 ## Project layout
 
@@ -251,14 +262,18 @@ End-to-end benchmark on the known real queries:
 
 ## Security & deploying publicly
 
-Songbird is built to run **locally**. The `/identify` endpoint has no auth or
-rate limiting, accepts unbounded uploads, and — for URL input — makes the server
-fetch an arbitrary URL via yt-dlp/ffmpeg. On localhost that's fine. If you expose
-it to the internet, first add: authentication or a rate limit (CPU inference is
-easy to DoS), an upload size cap, and an SSRF guard on the fetched URL (block
-private/loopback/link-local ranges and non-http(s) schemes). CORS is currently
-pinned to `localhost:5173` and would need widening — do that deliberately, not
-with `*`. No secrets are stored in this repo; keep it that way.
+The public `/identify` endpoint ships with baseline guards: uploads are capped
+at 30 MB (413 over that), and URL input is validated before fetch — only
+`http(s)` schemes, and hosts resolving to private/loopback/link-local ranges are
+rejected (SSRF guard, `_check_public_url` in `server/app.py`). CORS is
+env-driven (`SONGBIRD_ALLOWED_ORIGINS`), defaulting to localhost — set it to your
+frontend domain in production, never `*`. On Modal, `max_containers` bounds the
+DoS/cost blast radius.
+
+**Still deferred** (add if traffic warrants): a per-IP rate limit and/or auth on
+`/identify` — CPU inference is expensive, so a flood is costly even with the
+container cap. The SSRF guard checks the user-supplied URL but not every
+redirect yt-dlp follows. No secrets are stored in this repo; keep it that way.
 
 ## Licensing
 
