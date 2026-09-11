@@ -13,7 +13,7 @@ image = (
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("ffmpeg")
     .pip_install_from_requirements("requirements.txt")
-    .pip_install("--pre", "yt-dlp[default]")
+    .pip_install("yt-dlp[default]", extra_options="--pre --upgrade")
     .run_function(_download_model)
     .add_local_python_source("songbird", "server")
 )
