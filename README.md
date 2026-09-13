@@ -4,7 +4,7 @@
 
 Songbird finds the studio original of a live recording. You give it an audio file, a video file, or a link. It tells you the song and the artist. It links the studio version on Apple Music, Spotify, and TikTok.
 
-It works when the tempo, key, arrangement, or performance changes. It even works on a cover by a different band. It matches on musical identity, the way the song actually goes. Shazam needs the exact recording. Songbird doesn't.
+It works when the tempo, key, arrangement, or performance changes. It even works on a cover by a different band. It matches on musical identity, the way the song actually goes.
 
 ## How it works
 
@@ -20,14 +20,11 @@ audio or video file, or a URL
   -> single argmax, then song, artist, Apple URL
   -> Apple Music, Spotify, and TikTok links
 ```
-
-Two signals do the work. They are deliberately different.
-
 **MuQ timbre retrieval.** Frozen pretrained embeddings with kNN. Recall is strong. The right song is almost always in the top few. But top-1 gets shaky at scale, and it can land on a song that just sounds similar.
 
 **Chroma chord-progression rerank.** HPSS harmonic separation, CENS, and transposition-invariant local alignment. It survives distortion and instrument changes. It knows the song across a totally different band. This is what pushes the correct song past a look-alike.
 
-No training. No API keys. It is frozen embeddings plus kNN retrieval, aggregated at the performance level.
+Frozen embeddings plus kNN retrieval.
 
 ## Setup
 
@@ -229,7 +226,7 @@ The code is MIT. See `LICENSE`.
 
 MuQ (`OpenMuQ/MuQ-large-msd-iter`) is CC-BY-NC 4.0. That makes this a research and demo build, not a commercial one.
 
-The catalog and reference audio come from copyrighted Apple Music and iTunes content. They are not in the repo. You build your own.
+The catalog and reference audio come from copyrighted Apple Music and iTunes content. They're not in the repo, you build your own. But on the website you don't need to.
 
 ## Method
 
